@@ -1,0 +1,20 @@
+{
+	"name": "swift-skills",
+	"version": "1.0.0",
+	"description": "Swift and SwiftUI skills for Claude Code - idiomatic Swift patterns, functional programming, Codable, Strings, Numbers, and SwiftUI best practices. Based on books by Daniel Steinberg and Matt from Flight School.",
+	"author": {
+		"name": "henryhudson",
+		"url": "https://github.com/henryhudson"
+	},
+	"repository": "https://github.com/henryhudson/swift-claude-skills",
+	"keywords": [
+		"swift",
+		"swiftui",
+		"ios",
+		"functional-programming",
+		"codable",
+		"strings",
+		"numbers",
+		"apple"
+	]
+}
