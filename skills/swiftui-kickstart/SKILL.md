@@ -1,13 +1,13 @@
 ---
 name: swiftui-kickstart
-description: Apply Daniel Steinberg's SwiftUI Kickstart patterns. Value-type views, declarative composition, state-driven UI, proper data flow with @State/@Binding/@StateObject/@ObservedObject/@EnvironmentObject, and proportional layout. Use when writing or reviewing SwiftUI code.
+description: Apply Daniel Steinberg's SwiftUI Kickstart patterns with modern APIs (iOS 17+/18+). Value-type views, declarative composition, state-driven UI, @Observable data flow, NavigationStack, and proportional layout. Use when writing or reviewing SwiftUI code.
 metadata:
   author: Henry Hudson
-  version: "1.0"
-  source: "A SwiftUI Kickstart by Daniel Steinberg"
+  version: "2.0"
+  source: "A SwiftUI Kickstart by Daniel Steinberg (patterns modernized for iOS 17+/18+)"
 ---
 
-Apply SwiftUI patterns and principles from "A SwiftUI Kickstart" when writing, reviewing, or refactoring SwiftUI code. These represent a practical, Steinberg-style approach to SwiftUI development.
+Apply SwiftUI patterns and principles from "A SwiftUI Kickstart" when writing, reviewing, or refactoring SwiftUI code. These represent a practical, Steinberg-style approach to SwiftUI development, updated to modern APIs.
 
 ## Core Principles
 
@@ -26,11 +26,6 @@ struct ContentView: View {
             .foregroundStyle(.purple)
     }
 }
-
-// NOT the UIKit way - imperative, reference-type mutation
-// let label = UILabel()
-// label.text = "Hello"
-// label.font = ...
 ```
 
 ### 2. Opaque Return Types (`some View`)
@@ -52,12 +47,6 @@ VStack {
         Button("Forward", action: forward)
     }
 }
-
-// NOT this - relies on implicit TupleView wrapping
-// var body: some View {
-//     Image("Cover")
-//     Text("Cover")  // ambiguous layout
-// }
 ```
 
 - `VStack` - vertical arrangement
@@ -71,15 +60,16 @@ Modifiers create new wrapper views. They don't change existing views.
 
 ```swift
 Text("Hello")
-    .padding()              // wraps Text in padded view
-    .background(Color.blue) // wraps padded view in colored view
-    .cornerRadius(8)        // wraps that in clipped view
+    .padding()
+    .background(.blue)
+    .clipShape(.rect(cornerRadius: 8))
 ```
 
 **Key behaviors:**
 - Modifiers on a container set values in the **environment** for all children
 - Children can **override** inherited modifier values
 - Order matters: `.padding().background(.blue)` differs from `.background(.blue).padding()`
+- Use `ShapeStyle` directly (`.blue`) rather than spelling out `Color.blue`
 
 ### 5. State-Driven UI (Single Direction Data Flow)
 
@@ -104,37 +94,43 @@ Choose the right property wrapper based on ownership and type:
 |-----------|---------|-------|
 | Value type, owned by this view | `@State` | Always `private`. Initial value required. |
 | Value type, owned by parent | `@Binding` | Two-way connection. Use `$property` to pass. |
-| Reference type, created here | `@StateObject` | View owns the lifecycle. |
-| Reference type, passed in | `@ObservedObject` | View observes but doesn't own. |
-| Reference type, shared globally | `@EnvironmentObject` | Injected via `.environmentObject()`. |
+| `@Observable` class, created here | `@State` | View owns the lifecycle. |
+| `@Observable` class, passed in (read-only) | plain `var` or `let` | No wrapper needed — observation is automatic. |
+| `@Observable` class, passed in (need bindings) | `@Bindable` | Enables `$property` access on observed object. |
+| `@Observable` class, shared via environment | `@Environment` | Injected via `.environment()`. |
 | Small persistent value | `@AppStorage` | Backed by UserDefaults. |
 
 **How they connect:**
 
 ```swift
-// Owner creates with @State or @StateObject
+// Owner creates with @State
 struct Parent: View {
     @State private var count = 0
-    @StateObject var support = ViewModel()
+    @State private var viewModel = ViewModel()
 
     var body: some View {
-        // Pass down with $ for bindings
-        ChildView(count: $count)
-        // Pass reference type directly
-        DetailView(support: support)
+        // Pass value binding down with $
+        CounterView(count: $count)
+        // Pass observable object — no wrapper needed on receiving end
+        DetailView(viewModel: viewModel)
     }
 }
 
-// Child receives with @Binding or @ObservedObject
-struct ChildView: View {
+// Child receives value binding with @Binding
+struct CounterView: View {
     @Binding var count: Int  // can read AND write
 }
+
+// Child receives @Observable object — just a plain property
 struct DetailView: View {
-    @ObservedObject var support: ViewModel  // observes, doesn't own
+    var viewModel: ViewModel  // observation is automatic
+
+    // If you need to create bindings into the object:
+    // @Bindable var viewModel: ViewModel
 }
 ```
 
-### 7. Observable Objects Pattern
+### 7. Observation with @Observable
 
 The pattern for separating model from view:
 
@@ -148,17 +144,18 @@ struct Model {
 }
 
 // View Support / ViewModel - reference type, observable
-class ContentViewSupport: ObservableObject {
-    @Published private var model = Model(value: 0)
+@Observable
+class ContentViewSupport {
+    private var model = Model(value: 0)
 
     var currentValue: Int { model.value }
     func back() { model = model.decrease }
     func forward() { model = model.increase }
 }
 
-// View - value type, observes
+// View - value type, observes automatically
 struct ContentView: View {
-    @StateObject var support = ContentViewSupport()
+    @State private var support = ContentViewSupport()
 
     var body: some View {
         VStack {
@@ -172,10 +169,11 @@ struct ContentView: View {
 }
 ```
 
-Three required steps for observable objects:
-1. Class conforms to `ObservableObject`
-2. Properties that trigger UI updates are `@Published`
-3. View holds reference with `@StateObject` (owner) or `@ObservedObject` (observer)
+What makes `@Observable` simpler:
+1. Mark the class with `@Observable` — no protocol conformance needed
+2. All stored properties are automatically tracked — no `@Published`
+3. View holds reference with `@State` — no `@StateObject` vs `@ObservedObject` distinction
+4. SwiftUI tracks **which properties each view actually reads**, so views only re-evaluate when their specific dependencies change (fine-grained observation)
 
 ### 8. Environment Objects
 
@@ -183,22 +181,23 @@ Share state across the entire view hierarchy without passing through every level
 
 ```swift
 // Define
-class Accent: ObservableObject {
-    @Published var color: Color = .red
+@Observable
+class Accent {
+    var color: Color = .red
 }
 
 // Inject at top level
 ContentView()
-    .environmentObject(Accent())
+    .environment(Accent())
 
 // Pull out at any depth
 struct DeepChild: View {
-    @EnvironmentObject var accent: Accent
-    // ...
+    @Environment(Accent.self) private var accent
+    // use accent.color directly
 }
 ```
 
-**Important:** Sheets exist outside the view hierarchy. You must explicitly pass `.environmentObject()` to sheet content.
+**Important:** Sheets and other detached presentations may not inherit the environment. Pass `.environment()` explicitly to sheet content when needed.
 
 ### 9. Extract and Compose Views
 
@@ -245,8 +244,8 @@ struct DisplayModifier: ViewModifier {
         content
             .font(.largeTitle)
             .padding()
-            .background(Color.blue.opacity(0.1))
-            .cornerRadius(8)
+            .background(.blue.opacity(0.1))
+            .clipShape(.rect(cornerRadius: 8))
     }
 }
 
@@ -299,25 +298,60 @@ GridItem types: `.flexible()`, `.fixed(200)`, `.adaptive(minimum: 60)`
 
 ### 12. Navigation
 
+Use `NavigationStack` for push-based navigation with type-safe destinations:
+
 ```swift
-NavigationView {
+NavigationStack {
     List(items) { item in
-        NavigationLink(destination: DetailView(item: item)) {
+        NavigationLink(value: item) {
             ItemRow(item: item)
         }
     }
-    .navigationBarTitle("Items")
-    .navigationBarItems(trailing: EditButton())
+    .navigationTitle("Items")
+    .toolbar { EditButton() }
+    .navigationDestination(for: Item.self) { item in
+        DetailView(item: item)
+    }
 }
 ```
 
-- Attach `.navigationBarTitle` to the content, not the `NavigationView`
+For multi-column layouts (iPad/Mac sidebar patterns), use `NavigationSplitView`:
+
+```swift
+NavigationSplitView {
+    List(items, selection: $selectedItem) { item in
+        Text(item.name)
+    }
+} detail: {
+    if let selectedItem {
+        DetailView(item: selectedItem)
+    } else {
+        ContentUnavailableView("Select an Item", systemImage: "sidebar.left")
+    }
+}
+```
+
+- Attach `.navigationTitle` to the content inside, not the `NavigationStack`
 - Use `TabView` for tab-based navigation
-- Use `.sheet(isPresented:)` for modal presentation
+- Use `.sheet(isPresented:)` or `.sheet(item:)` for modal presentation
+- Use `.navigationDestination(for:)` to define destinations by type — keeps navigation logic declarative
 
-### 13. Proportional Layout with GeometryReader
+### 13. Proportional Layout
 
-Avoid hard-coded sizes. Use `GeometryReader` for responsive layout:
+Avoid hard-coded sizes. Prefer proportional and responsive layout:
+
+**`containerRelativeFrame` (iOS 17+)** — the simplest way to size relative to the container:
+
+```swift
+Image("photo")
+    .resizable()
+    .scaledToFit()
+    .containerRelativeFrame(.horizontal) { width, _ in
+        width * 0.8
+    }
+```
+
+**`GeometryReader`** — when you need full access to the proposed size:
 
 ```swift
 GeometryReader { proxy in
@@ -331,7 +365,7 @@ GeometryReader { proxy in
 - Parent offers space, child says how much it needs
 - Shapes are greedy (claim all offered space)
 - Derive a key dimension and express everything as fractions of it
-- Works in both portrait and landscape
+- Prefer `containerRelativeFrame` when you only need one axis; use `GeometryReader` when you need both dimensions or coordinate offsets
 
 ### 14. Custom Drawing with Path
 
@@ -356,8 +390,8 @@ Pre-compute named constants for coordinates. Make line widths relative to dimens
 var body: some View {
     Slider(value: $rating, in: 0...100)
         .onAppear { rating = moodRating }
-        .onChange(of: scenePhase) { phase in
-            if phase == .background { moodRating = rating }
+        .onChange(of: scenePhase) { oldValue, newValue in
+            if newValue == .background { moodRating = rating }
         }
 }
 ```
@@ -372,12 +406,14 @@ Look for these improvement opportunities:
 2. **Imperative UI updates** - are you trying to modify views instead of changing state?
 3. **Wrong property wrapper** - is ownership and type correctly matched?
 4. **Missing `private` on `@State`** - `@State` should always be private
-5. **Hard-coded layout values** - should these be proportional via GeometryReader?
+5. **Hard-coded layout values** - should these use `containerRelativeFrame` or `GeometryReader`?
 6. **Duplicated modifier chains** - extract to a custom ViewModifier
 7. **Monolithic views** - extract sub-views with properties
 8. **`@AppStorage` bound to Slider** - separate UI state from persistence
-9. **Missing `.environmentObject()` on sheets** - sheets are outside the hierarchy
-10. **Implicit layout** - use explicit stacks instead of relying on TupleView
+9. **Using `ObservableObject`/`@Published`** - prefer `@Observable` for iOS 17+
+10. **Using `NavigationView`** - use `NavigationStack` or `NavigationSplitView`
+11. **Using `.cornerRadius()`** - prefer `.clipShape(.rect(cornerRadius:))`
+12. **Using `@StateObject`/`@ObservedObject`** - with `@Observable`, just use `@State` or plain property
 
 ## Philosophy
 
@@ -385,4 +421,5 @@ Look for these improvement opportunities:
 - "Programming by intention" - write the call site first, then build the support.
 - Data flows in one direction: actions -> state changes -> UI updates.
 - Separate what a view *is* (stored properties) from how it *looks* (body).
+- Observation should be automatic and fine-grained — `@Observable` tracks exactly what each view reads.
 - "Hire a designer and listen to them."

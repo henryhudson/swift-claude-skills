@@ -1,13 +1,13 @@
 ---
 name: swift-kickstart
-description: Apply Daniel Steinberg's idiomatic Swift patterns. let over var, type inference, value types, protocol extensions, guard let, named tuples, higher-order functions, and expressive API design. Use when writing or reviewing Swift code.
+description: Apply Daniel Steinberg's idiomatic Swift patterns with modern syntax (Swift 5.9+/6.0+). let over var, type inference, value types, protocol extensions, guard let shorthand, some/any, higher-order functions, typed throws, and expressive API design. Use when writing or reviewing Swift code.
 metadata:
   author: Henry Hudson
-  version: "1.0"
-  source: "A Swift Kickstart (2nd Edition) by Daniel Steinberg"
+  version: "2.0"
+  source: "A Swift Kickstart (2nd Edition) by Daniel Steinberg (patterns modernized for Swift 5.9+/6.0+)"
 ---
 
-Apply idiomatic Swift patterns from "A Swift Kickstart" when writing, reviewing, or refactoring Swift code. These represent Daniel Steinberg's opinionated, practical approach to writing "Swifty" code.
+Apply idiomatic Swift patterns from "A Swift Kickstart" when writing, reviewing, or refactoring Swift code. These represent Daniel Steinberg's opinionated, practical approach to writing "Swifty" code, updated to modern Swift.
 
 ## Core Principles
 
@@ -117,7 +117,7 @@ Use classes only when you need:
 - Reference semantics (identity, shared mutable state)
 - Inheritance
 - Interop with Objective-C / UIKit
-- Observable objects in SwiftUI
+- `@Observable` types in SwiftUI
 
 ### 8. Enumerations Are Powerful
 
@@ -177,17 +177,17 @@ extension Model: Equatable {}  // synthesized
 
 If a value can be `nil`, it must be `Optional`. Never force-unwrap unless you are certain.
 
-**Prefer `guard let` for the happy path:**
+**Prefer `guard let` for the happy path — use shorthand when shadowing the same name:**
 ```swift
 func validate(_ url: URL?) -> String {
-    guard let url = url else { return "No file found" }
+    guard let url else { return "No file found" }
     return "Found file at: \(url.path)"
 }
 ```
 
 **Use `if let` for conditional logic:**
 ```swift
-if let url = url {
+if let url {
     print("Found: \(url.path)")
 } else {
     print("Missing")
@@ -199,10 +199,11 @@ if let url = url {
 let name = optionalName ?? "Unknown"
 ```
 
-**Name shadowing** is idiomatic — use the same name for the unwrapped value:
+**Name shadowing** is idiomatic — use the same name for the unwrapped value. The shorthand `if let x` / `guard let x` is preferred when the unwrapped name matches the optional:
 ```swift
-guard let url = url else { return }
-// `url` is now non-optional
+guard let url else { return }         // preferred shorthand
+guard let url = url else { return }   // equivalent, verbose form
+guard let path = url?.path else { return }  // different name — use full form
 ```
 
 ### 11. Protocols and Extensions
@@ -224,10 +225,24 @@ extension Card: Describable {
 extension Describable {
     var shortDescription: String { "\(self)" }
 }
+```
 
-// Generics constrained by protocol
-func display<T: Describable>(_ item: T) {
+**`some` vs `any` — opaque types vs existentials:**
+
+```swift
+// `some` — opaque type: one specific concrete type, known at compile time
+// Preferred for parameters when you don't need heterogeneous collections
+func display(_ item: some Describable) {
     print(item.shortDescription)
+}
+
+// `any` — existential: can hold any conforming type, type-erased at runtime
+// Required in Swift 6 when using a protocol as a type (not a constraint)
+var items: [any Describable] = [card, rank, suit]
+
+// Use explicit generics when you need type relationships or multiple references
+func compare<T: Describable>(_ a: T, _ b: T) -> Bool {
+    a.shortDescription == b.shortDescription
 }
 ```
 
@@ -243,22 +258,31 @@ enum ValidationError: Error {
     case invalidCharacter(Character)
 }
 
-func validate(_ input: String) throws -> String {
-    guard input.count >= 3 else { throw ValidationError.tooShort }
+// Typed throws (Swift 6) — caller knows the exact error type
+func validate(_ input: String) throws(ValidationError) -> String {
+    guard input.count >= 3 else { throw .tooShort }
     return input
 }
 
-// Catching
+// Catching typed errors
 do {
     let result = try validate(input)
-} catch ValidationError.tooShort {
+} catch .tooShort {
     print("Too short")
-} catch {
-    print("Other error: \(error)")
+} catch .invalidCharacter(let ch) {
+    print("Bad character: \(ch)")
 }
 ```
 
-Use `Result` for async contexts or when you need to store the outcome:
+Use untyped `throws` (throws `any Error`) when the error type doesn't matter to the caller or when errors come from multiple sources:
+```swift
+func process(_ input: String) throws -> String {
+    let validated = try validate(input)
+    return try transform(validated)
+}
+```
+
+Use `Result` when you need to store or pass an outcome as a value:
 ```swift
 let result: Result<String, ValidationError> = .success("valid")
 ```
@@ -332,8 +356,9 @@ Think about access from the start, not as an afterthought:
 - `private` - visible only within the enclosing declaration
 - `fileprivate` - visible within the file
 - `internal` (default) - visible within the module
+- `package` - visible within the same Swift package (SPM package boundary)
 - `public` - visible outside the module
-- `open` - visible and subclassable outside the module
+- `open` - visible and subclassable/overridable outside the module
 
 ```swift
 struct Counter {
@@ -345,18 +370,23 @@ struct Counter {
 }
 ```
 
+`package` is useful in multi-module packages where you want types shared across your own modules without exposing them as public API.
+
 ## When Reviewing Swift Code
 
 1. **`var` that should be `let`** - can this be immutable?
 2. **Explicit types that could be inferred** - is the type annotation necessary?
 3. **Force unwraps (`!`)** - use `guard let`, `if let`, or `??` instead
-4. **Unnamed tuple components** - add names for clarity
-5. **Class that should be struct** - does this need reference semantics?
-6. **Missing `guard let`** - can nested `if let` be flattened with guard?
-7. **Manual loops** - can `map`, `filter`, `reduce`, `flatMap`, or `compactMap` express this more clearly?
-8. **Unclear parameter labels** - do call sites read naturally?
-9. **Conformances in the type declaration** - separate into extensions
-10. **Public mutable state** - should this be `public private(set) var`?
+4. **Verbose optional unwrapping** - use `if let x` / `guard let x` shorthand when shadowing
+5. **Unnamed tuple components** - add names for clarity
+6. **Class that should be struct** - does this need reference semantics?
+7. **Missing `guard let`** - can nested `if let` be flattened with guard?
+8. **Manual loops** - can `map`, `filter`, `reduce`, `flatMap`, or `compactMap` express this more clearly?
+9. **Unclear parameter labels** - do call sites read naturally?
+10. **Conformances in the type declaration** - separate into extensions
+11. **Public mutable state** - should this be `public private(set) var`?
+12. **Bare protocol types** - use `any Protocol` for existentials or `some Protocol` for opaque parameters
+13. **Untyped throws** - would typed throws clarify the error contract?
 
 ## Philosophy
 
